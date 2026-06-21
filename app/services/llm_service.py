@@ -1,34 +1,36 @@
 """
-Servicio de LLM (Large Language Model).
+Servicio de LLM — Refactorizado con LangChain.
 
-Responsabilidad única: recibir una pregunta y fragmentos de contexto,
-y devolver una respuesta generada por Gemini.
+Cambios respecto a la versión anterior:
+----------------------------------------
+ANTES:  google.genai.Client → llamada directa al SDK de Google.
+AHORA:  LCEL Chain → PromptTemplate | ChatGoogleGenerativeAI | StrOutputParser
 
-Patrón utilizado: Stuffing
-──────────────────────────
-Concatenamos todos los chunks recuperados en un solo bloque de texto
-y se lo enviamos al LLM en una única llamada. Es la estrategia más
-simple, rápida y barata. Los modelos modernos tienen ventanas de
-contexto lo suficientemente grandes para manejar esto sin problemas.
+¿Qué ganamos con LCEL?
+-----------------------
+1. Desacoplamiento: cambiar de Gemini a OpenAI requiere modificar UNA línea.
+2. Composición declarativa: el flujo de datos es explícito y legible.
+3. Async nativo: ainvoke() es async sin necesidad de wrappers manuales.
+4. Extensibilidad: agregar streaming, memoria o callbacks es trivial.
+
+El patron Stuffing se mantiene: concatenamos todos los chunks en un
+solo bloque de texto y se lo enviamos al LLM en una única llamada.
 """
 
-from google import genai
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.documents import Document
 from loguru import logger
 
 from app.core.config import settings
 
 
-# ── Cliente de Gemini ─────────────────────────────────────────────────────────
-# Instanciamos el cliente una sola vez al importar el módulo (Singleton).
-# El SDK necesita la API key para autenticarse contra los servidores de Google.
-_client = genai.Client(api_key=settings.gemini_api_key)
-
-
-# ── System Prompt ─────────────────────────────────────────────────────────────
-# Esta es la instrucción base que define el COMPORTAMIENTO del asistente.
-# Es la pieza más importante para evitar alucinaciones: le decimos
-# explícitamente que solo use la información del contexto provisto.
-SYSTEM_PROMPT = """Sos un asistente de conocimiento interno de la empresa.
+# ── Prompt Template ───────────────────────────────────────────────────────────
+# PromptTemplate reemplaza el f-string manual de la versión anterior.
+# Las variables entre llaves ({context}, {query}) se inyectan en ainvoke().
+_PROMPT_TEMPLATE = """\
+Sos un asistente de conocimiento interno de la empresa.
 Tu trabajo es responder preguntas EXCLUSIVAMENTE usando el contexto proporcionado.
 
 Reglas estrictas:
@@ -36,68 +38,58 @@ Reglas estrictas:
 2. Si la respuesta no está en el contexto, decí: "No encontré información sobre eso en los documentos disponibles."
 3. No inventes ni supongas información.
 4. Citá las partes relevantes del contexto cuando sea apropiado.
-5. Respondé en el mismo idioma en que te preguntan."""
+5. Respondé en el mismo idioma en que te preguntan.
 
-
-def _build_user_prompt(query: str, contexts: list[str]) -> str:
-    """
-    Arma el prompt final que recibe el LLM combinando pregunta + contexto.
-
-    Estructura del prompt (Stuffing):
-        CONTEXTO:
-        [1] texto del chunk 1
-        [2] texto del chunk 2
-        ...
-        PREGUNTA:
-        ¿...?
-
-    Los números entre corchetes ayudan al modelo a referenciar
-    fuentes específicas en su respuesta.
-    """
-    context_block = "\n\n".join(
-        f"[{i + 1}] {text}" for i, text in enumerate(contexts)
-    )
-
-    return f"""CONTEXTO:
-{context_block}
+CONTEXTO:
+{context}
 
 PREGUNTA:
 {query}"""
 
+_prompt = PromptTemplate.from_template(_PROMPT_TEMPLATE)
 
-async def generate_answer(query: str, contexts: list[str]) -> str:
+
+# ── ChatModel (LangChain wrapper de Gemini) ───────────────────────────────────
+# ChatGoogleGenerativeAI implementa la interfaz estándar BaseChatModel de LangChain.
+# Temperatura baja = respuestas más determinísticas y fieles al contexto.
+_llm = ChatGoogleGenerativeAI(
+    model=settings.gemini_model,
+    google_api_key=settings.gemini_api_key,
+    temperature=0.2,
+)
+
+
+# ── LCEL Chain ────────────────────────────────────────────────────────────────
+# El operador | conecta componentes: la salida de uno es la entrada del siguiente.
+# StrOutputParser extrae el string de texto del objeto AIMessage que devuelve el LLM.
+_qa_chain = _prompt | _llm | StrOutputParser()
+
+
+async def generate_answer(query: str, docs: list[Document]) -> str:
     """
-    Genera una respuesta usando Gemini con la técnica de Stuffing.
+    Genera una respuesta usando la LCEL Chain con Gemini.
 
     Args:
-        query:    La pregunta del usuario.
-        contexts: Lista de textos de los chunks recuperados en la búsqueda.
+        query: La pregunta del usuario.
+        docs:  Lista de LangChain Documents recuperados por search_chunks.
 
     Returns:
         La respuesta generada por el LLM como string.
     """
-    user_prompt = _build_user_prompt(query, contexts)
+    # Construimos el bloque de contexto desde los Documents.
+    # page_content es el texto del chunk — la interfaz estándar de LangChain.
+    context_block = "\n\n".join(
+        f"[{i + 1}] {doc.page_content}" for i, doc in enumerate(docs)
+    )
 
     logger.info(
-        f"Sending prompt to Gemini ({settings.gemini_model}) "
-        f"with {len(contexts)} context chunks"
+        f"Invoking LangChain chain ({settings.gemini_model}) "
+        f"with {len(docs)} context chunks"
     )
 
-    # generate_content es la llamada principal al LLM.
-    # contents: el mensaje del usuario (pregunta + contexto).
-    # config: parámetros de generación (system prompt, temperatura, etc.).
-    response = _client.models.generate_content(
-        model=settings.gemini_model,
-        contents=user_prompt,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            # Temperatura baja = respuestas más determinísticas y fieles al contexto.
-            # 0.0 sería 100% determinístico pero puede sonar robótico.
-            # 0.2 da un buen balance entre fidelidad y naturalidad.
-            temperature=0.2,
-        ),
-    )
+    # ainvoke() es el método async de las LCEL Chains.
+    # Recibe un dict con las variables del PromptTemplate.
+    answer = await _qa_chain.ainvoke({"context": context_block, "query": query})
 
-    answer = response.text
-    logger.info(f"Gemini response received ({len(answer)} chars)")
+    logger.info(f"Chain response received ({len(answer)} chars)")
     return answer

@@ -23,9 +23,20 @@ async def perform_search(
     La respuesta de este endpoint (los textos de los chunks) es lo que en el futuro
     se le inyectará al LLM para que pueda responder la pregunta.
     """
-    results = await search_chunks(session, request.query, request.limit)
-    
+    docs = await search_chunks(session, request.query, request.limit)
+
+    # Convertimos los Documents al formato dict que espera QueryResponse.
+    results = [
+        {
+            "chunk_id": doc.metadata["chunk_id"],
+            "document_id": doc.metadata["document_id"],
+            "content": doc.page_content,
+            "distance": doc.metadata["distance"],
+        }
+        for doc in docs
+    ]
+
     return QueryResponse(
         query=request.query,
-        results=results
+        results=results,
     )

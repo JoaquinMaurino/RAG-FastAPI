@@ -41,3 +41,9 @@ pgvector==0.3.6               # Tipo Vector para SQLAlchemy — integración con
 # Steps 9 & 10: Gemini LLM + RAG Chat
 # ============================================
 google-genai==2.9.0           # SDK oficial de Google para Gemini (genera respuestas)
+
+# ============================================
+# Step 11: LangChain Integration
+# ============================================
+langchain-core==0.3.37           # Abstracciones base: Document, PromptTemplate, Chain, etc.
+langchain-google-genai==2.0.10   # Wrapper de LangChain para Gemini (ChatGoogleGenerativeAI)
