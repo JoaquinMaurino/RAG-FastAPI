@@ -22,6 +22,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
 from loguru import logger
+from typing import AsyncGenerator
 
 from app.core.config import settings
 
@@ -93,3 +94,28 @@ async def generate_answer(query: str, docs: list[Document]) -> str:
 
     logger.info(f"Chain response received ({len(answer)} chars)")
     return answer
+
+async def generate_answer_stream(query: str, docs: list[Document]) -> AsyncGenerator[str, None]:
+    """
+    Genera una respuesta en streaming usando la LCEL Chain con Gemini.
+
+    Args:
+        query: La pregunta del usuario.
+        docs:  Lista de LangChain Documents recuperados por search_chunks.
+
+    Yields:
+        Fragmentos (chunks) de texto generados por el LLM en tiempo real.
+    """
+    context_block = "\n\n".join(
+        f"[{i + 1}] {doc.page_content}" for i, doc in enumerate(docs)
+    )
+
+    logger.info(
+        f"Starting LangChain stream ({settings.gemini_model}) "
+        f"with {len(docs)} context chunks"
+    )
+
+    # astream() devuelve un generador asíncrono que escupe tokens
+    # a medida que Gemini los va enviando.
+    async for chunk in _qa_chain.astream({"context": context_block, "query": query}):
+        yield chunk

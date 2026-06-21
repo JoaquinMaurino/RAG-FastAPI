@@ -15,55 +15,45 @@ la AsyncSession de FastAPI requiere un BaseRetriever custom que mezcla
 las responsabilidades. Mantenerlos separados es más limpio y explícito.
 """
 
+import json
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
-from app.schemas.query import QueryRequest, QueryResponse
+from app.schemas.query import QueryRequest
 from app.services.search_service import search_chunks
-from app.services.llm_service import generate_answer
+from app.services.llm_service import generate_answer_stream
 
 router = APIRouter(tags=["Chat"])
 
 
-@router.post("/", response_model=QueryResponse)
+@router.post("/")
 async def chat(
     request: QueryRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """
-    **Endpoint de Chat con RAG (Retrieval Augmented Generation)**
+    **Endpoint de Chat con RAG (Streaming SSE)**
 
-    Recibe una pregunta en lenguaje natural y devuelve una respuesta
-    generada por Gemini vía LangChain, basada exclusivamente en los
-    documentos almacenados en la base de datos.
+    Recibe una pregunta en lenguaje natural y devuelve un stream de texto
+    (Server-Sent Events) generado por Gemini vía LangChain, basado en los
+    documentos almacenados.
 
-    Flujo interno:
-    1. Busca los chunks más relevantes a la pregunta (Retrieval)
-    2. Pasa los Documents a la LCEL Chain para generar la respuesta (Generation)
-    3. Devuelve la respuesta junto con las fuentes utilizadas
+    Nota: Al ser un stream, Swagger UI no lo puede visualizar en tiempo real.
+    Prueba desde la terminal con:
+    curl -N -X POST http://127.0.0.1:8000/chat/ -H "Content-Type: application/json" -d "{\"query\": \"...\"}"
     """
-    # --- Paso 1: Retrieval (DB injection separada de la chain) ---
-    # search_chunks devuelve List[LangChain Document] con page_content y metadata.
+    # --- Paso 1: Retrieval ---
     docs = await search_chunks(session, request.query, request.limit)
 
-    # --- Paso 2: Generation (LCEL Chain) ---
-    answer = await generate_answer(request.query, docs)
+    # --- Paso 2: Generador de Texto Crudo ---
+    async def event_generator():
+        # Iteramos sobre el generador asíncrono de LangChain
+        async for chunk in generate_answer_stream(request.query, docs):
+            # Enviamos el texto puro sin formato SSE para que curl lo muestre limpio
+            yield chunk
 
-    # --- Paso 3: Armar la respuesta ---
-    # Convertimos los Documents de vuelta a dicts para el schema Pydantic.
-    results = [
-        {
-            "chunk_id": doc.metadata["chunk_id"],
-            "document_id": doc.metadata["document_id"],
-            "content": doc.page_content,
-            "distance": doc.metadata["distance"],
-        }
-        for doc in docs
-    ]
-
-    return QueryResponse(
-        query=request.query,
-        answer=answer,
-        results=results,
-    )
+    # --- Paso 3: Respuesta ---
+    # Devolvemos un stream de texto plano
+    return StreamingResponse(event_generator(), media_type="text/plain")
