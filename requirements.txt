@@ -1,0 +1,43 @@
+# ============================================
+# Step 1: Project Skeleton
+# ============================================
+
+# --- Web Framework ---
+fastapi==0.115.12          # Framework web async para Python
+uvicorn[standard]==0.34.3  # ASGI server que corre FastAPI
+
+# --- Database ---
+sqlalchemy[asyncio]==2.0.41  # ORM para interactuar con PostgreSQL
+asyncpg==0.30.0              # Driver async de PostgreSQL (lo usa SQLAlchemy por debajo)
+
+# --- Configuration ---
+pydantic-settings==2.9.1  # Carga y valida variables de entorno automáticamente
+
+# --- Utilities ---
+python-dotenv==1.1.1  # Lee archivos .env y los carga como env vars
+
+# ============================================
+# Step 3: PDF Upload
+# ============================================
+python-multipart==0.0.20  # Requerido por FastAPI para recibir archivos (multipart/form-data)
+
+# ============================================
+# Step 4: PDF Text Extraction
+# ============================================
+PyMuPDF==1.26.1  # Motor C (MuPDF) — extracción rápida y precisa de texto de PDFs
+
+# ============================================
+# General / Utils
+# ============================================
+loguru==0.7.2                 # Logger hermoso y estructurado (estilo NestJS)
+
+# ============================================
+# Steps 6 & 7: Embeddings + pgvector
+# ============================================
+sentence-transformers==3.3.1  # Modelos de embeddings locales (HuggingFace), sin API key
+pgvector==0.3.6               # Tipo Vector para SQLAlchemy — integración con pgvector
+
+# ============================================
+# Steps 9 & 10: Gemini LLM + RAG Chat
+# ============================================
+google-genai==2.9.0           # SDK oficial de Google para Gemini (genera respuestas)

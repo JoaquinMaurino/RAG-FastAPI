@@ -1,0 +1,94 @@
+# ============================================
+# Docker Compose - Phase 1: API + PostgreSQL
+# ============================================
+# Docker Compose orquesta MÚLTIPLES contenedores.
+# En vez de levantar cada servicio manualmente, con un solo comando
+# levantás todo: docker compose up
+#
+# Cada "service" es un contenedor independiente que puede hablar
+# con los otros a través de una red interna de Docker.
+
+services:
+
+  # ==========================================
+  # PostgreSQL - Base de datos
+  # ==========================================
+  postgres:
+    # Imagen oficial de PostgreSQL con pgvector pre-instalado.
+    # pgvector es la extensión que nos permitirá hacer búsqueda semántica
+    # (lo usaremos en Step 7, pero lo dejamos instalado desde ahora).
+    image: pgvector/pgvector:pg16
+
+    container_name: rag-postgres
+
+    # Variables de entorno que PostgreSQL usa para configurarse
+    # al arrancar por primera vez.
+    environment:
+      POSTGRES_USER: postgres      # Usuario administrador
+      POSTGRES_PASSWORD: postgres  # Contraseña (en prod usarías secrets)
+      POSTGRES_DB: rag_db          # Nombre de la DB que se crea automáticamente
+
+    # Mapeo de puertos: HOST:CONTENEDOR
+    # El puerto 5432 del contenedor se expone como 5432 en tu máquina.
+    # Esto te permite conectarte desde fuera de Docker (ej: pgAdmin, DBeaver).
+    ports:
+      - "5432:5432"
+
+    # Volume: persiste los datos de PostgreSQL.
+    # Sin esto, al hacer "docker compose down" perderías TODOS los datos.
+    # El volume guarda los datos en tu disco, fuera del contenedor.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Healthcheck: Docker verifica periódicamente que PostgreSQL está vivo.
+    # pg_isready es un utilitario incluido en la imagen de PostgreSQL.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s    # Verificar cada 5 segundos
+      timeout: 5s     # Si no responde en 5s, se considera fallido
+      retries: 5      # Después de 5 fallos, marca el contenedor como "unhealthy"
+
+  # ==========================================
+  # API - FastAPI Application
+  # ==========================================
+  api:
+    # Construir la imagen desde nuestro Dockerfile
+    build:
+      context: .       # Directorio donde está el Dockerfile
+      dockerfile: Dockerfile
+
+    container_name: rag-api
+
+    # Mapeo de puertos: accedés a la API en http://localhost:8000
+    ports:
+      - "8000:8000"
+
+    # Variables de entorno para la API.
+    # NOTA: Acá usamos "postgres" como host (no "localhost") porque
+    # dentro de Docker Compose, los servicios se comunican por su
+    # nombre de servicio. "postgres" resuelve a la IP del contenedor.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/rag_db
+      APP_NAME: RAG FastAPI
+      DEBUG: "true"
+
+    # Monta tu código local dentro del contenedor.
+    # Esto permite que --reload de uvicorn detecte cambios en tu código
+    # sin tener que reconstruir la imagen.
+    volumes:
+      - .:/app
+
+    # depends_on con condition: asegura que PostgreSQL esté HEALTHY
+    # antes de arrancar la API. Sin esto, la API podría arrancar antes
+    # de que PostgreSQL esté listo para recibir conexiones.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+# ==========================================
+# Volumes persistentes
+# ==========================================
+# Docker maneja estos volumes. Los datos sobreviven a
+# "docker compose down" pero se borran con "docker compose down -v".
+volumes:
+  postgres_data:
