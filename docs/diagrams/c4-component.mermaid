@@ -1,0 +1,33 @@
+C4Component
+    title Component diagram for FastAPI Application
+
+    Container_Boundary(api, "FastAPI Application") {
+        Component(router, "API Routers", "FastAPI APIRouter", "Handles HTTP routing, validation (Pydantic), and status codes.")
+        Component(docSvc, "Document Service", "Python Module", "Orchestrates PDF saving, extraction, chunking, embedding, and DB insertion.")
+        Component(searchSvc, "Search Service", "Python Module", "Performs semantic cosine similarity searches via pgvector.")
+        Component(llmSvc, "LLM Service", "Python Module", "Executes LangChain LCEL RAG pipeline with streaming.")
+        Component(agentSvc, "Agent Service", "Python Module", "Executes LangChain ReAct Agent using tools.")
+        
+        Component(extractor, "PDF Extractor", "PyMuPDF", "Extracts raw text from PDFs.")
+        Component(chunker, "Text Chunker", "Custom Recursive", "Splits text into chunks with overlap.")
+        Component(embedder, "Embedding Service", "SentenceTransformers", "Generates 384-dimensional embeddings (Singleton).")
+        
+        Component(session, "Database Session", "SQLAlchemy async_session", "Manages PostgreSQL connection pool.")
+    }
+
+    Rel(router, docSvc, "Uses")
+    Rel(router, searchSvc, "Uses")
+    Rel(router, llmSvc, "Uses")
+    Rel(router, agentSvc, "Uses")
+
+    Rel(docSvc, extractor, "Uses")
+    Rel(docSvc, chunker, "Uses")
+    Rel(docSvc, embedder, "Uses")
+    Rel(docSvc, session, "Uses")
+
+    Rel(searchSvc, embedder, "Uses")
+    Rel(searchSvc, session, "Uses")
+
+    Rel(llmSvc, searchSvc, "Uses")
+    Rel(agentSvc, docSvc, "Uses as Tool")
+    Rel(agentSvc, searchSvc, "Uses as Tool")

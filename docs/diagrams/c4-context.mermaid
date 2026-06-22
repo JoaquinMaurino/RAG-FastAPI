@@ -1,0 +1,10 @@
+C4Context
+    title System Context diagram for RAG FastAPI Knowledge Assistant
+
+    Person(employee, "Company Employee", "An employee who needs to query internal documents.")
+    System(ragSystem, "Knowledge Assistant System", "Allows employees to upload PDFs, search, and chat with internal knowledge.")
+
+    System_Ext(gemini, "Google Gemini API", "External LLM Provider for text generation and reasoning.")
+
+    Rel(employee, ragSystem, "Uploads documents and asks questions")
+    Rel(ragSystem, gemini, "Sends prompts and retrieves generated answers")

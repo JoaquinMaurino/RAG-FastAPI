@@ -1,0 +1,12 @@
+graph TD
+    A[User Uploads PDF] --> B(API: POST /documents)
+    B --> C[Document Service]
+    C --> D{Save to Disk}
+    D --> E[PyMuPDF Extractor]
+    E -->|Raw Text| F[Recursive Character Chunker]
+    F -->|List of Strings| G[Embedding Service]
+    G -->|SentenceTransformers| H[Generate Vectors]
+    H --> I[SQLAlchemy: INSERT Document]
+    I --> J[SQLAlchemy: INSERT Chunks + Vectors]
+    J --> K[(PostgreSQL + pgvector)]
+    K --> L[Return 200 OK]

@@ -1,0 +1,17 @@
+C4Container
+    title Container diagram for Knowledge Assistant System
+
+    Person(employee, "Company Employee", "An employee who needs to query internal documents.")
+
+    System_Boundary(c1, "Knowledge Assistant System") {
+        Container(api, "FastAPI Application", "Python, FastAPI", "Handles HTTP requests, coordinates RAG logic and Agent execution.")
+        ContainerDb(db, "PostgreSQL Database", "PostgreSQL, pgvector", "Stores document metadata, chunks, and vector embeddings.")
+        Container(fs, "File System", "Local Disk", "Stores original uploaded PDF files.")
+    }
+
+    System_Ext(gemini, "Google Gemini API", "LLM Provider")
+
+    Rel(employee, api, "Makes API calls to", "JSON/HTTP")
+    Rel(api, db, "Reads from and writes to", "asyncpg/SQLAlchemy")
+    Rel(api, fs, "Reads and writes files to", "Disk IO")
+    Rel(api, gemini, "Calls generation API", "HTTPS")
