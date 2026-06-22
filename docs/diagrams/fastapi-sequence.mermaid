@@ -1,0 +1,25 @@
+sequenceDiagram
+    actor Client
+    participant Router as API Router (/documents)
+    participant Validator as Pydantic
+    participant Svc as Document Service
+    participant DB as PostgreSQL
+
+    Client->>Router: POST /documents (UploadFile)
+    Router->>Validator: Validate Request
+    Validator-->>Router: Validated
+    Router->>Svc: create(file)
+    
+    Svc->>Svc: save_upload() -> disk
+    Svc->>Svc: extract_text()
+    Svc->>Svc: chunk_text()
+    Svc->>Svc: get_embeddings_batch()
+    
+    Svc->>DB: session.add(Document)
+    Svc->>DB: session.flush()
+    Svc->>DB: session.add_all(Chunks)
+    Svc->>DB: session.commit()
+    
+    DB-->>Svc: Persisted Entities
+    Svc-->>Router: Document Model
+    Router-->>Client: 200 OK (DocumentResponse JSON)

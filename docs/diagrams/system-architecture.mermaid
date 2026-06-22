@@ -1,0 +1,54 @@
+graph TD
+    User([User Client])
+
+    subgraph "API Layer (FastAPI)"
+        DocsRoute["/documents"]
+        SearchRoute["/search"]
+        ChatRoute["/chat"]
+        AgentRoute["/agent"]
+    end
+
+    subgraph "Service Layer"
+        DocSvc[Document Service]
+        SearchSvc[Search Service]
+        LLMSvc[LLM Service]
+        AgentSvc[Agent Service]
+    end
+
+    subgraph "RAG Engine"
+        Extractor[PDF Extractor]
+        Chunker[Text Chunker]
+        Embedder[Embedding Service]
+    end
+
+    subgraph "Data Persistence"
+        Postgres[(PostgreSQL + pgvector)]
+        FS[Local File System]
+    end
+
+    subgraph "External Providers"
+        Gemini[Google Gemini API]
+    end
+
+    User -->|HTTP POST| DocsRoute
+    User -->|HTTP POST| ChatRoute
+    User -->|HTTP POST| AgentRoute
+
+    DocsRoute --> DocSvc
+    ChatRoute --> LLMSvc
+    AgentRoute --> AgentSvc
+
+    DocSvc --> Extractor
+    DocSvc --> Chunker
+    DocSvc --> Embedder
+    DocSvc --> Postgres
+    DocSvc --> FS
+
+    LLMSvc --> SearchSvc
+    SearchSvc --> Embedder
+    SearchSvc --> Postgres
+    LLMSvc --> Gemini
+
+    AgentSvc --> Gemini
+    AgentSvc -.->|Tools| DocSvc
+    AgentSvc -.->|Tools| SearchSvc

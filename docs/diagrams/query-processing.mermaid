@@ -1,0 +1,28 @@
+sequenceDiagram
+    actor User
+    participant API as FastAPI Router
+    participant LLM as LLM Service
+    participant Search as Search Service
+    participant Embedder as Embedding Service
+    participant DB as PostgreSQL (pgvector)
+    participant Gemini as Google Gemini API
+
+    User->>API: POST /chat/ {"query": "..."}
+    API->>LLM: generate_answer_stream(query)
+    
+    LLM->>Search: search_chunks(query, limit=5)
+    Search->>Embedder: get_embedding(query)
+    Embedder-->>Search: Query Vector [0.1, 0.4, ...]
+    
+    Search->>DB: Cosine Similarity Search (<->)
+    DB-->>Search: Top 5 Chunks
+    Search-->>LLM: List[Document]
+    
+    LLM->>LLM: Inject Chunks into PromptTemplate
+    
+    LLM->>Gemini: astream(prompt)
+    loop SSE Stream
+        Gemini-->>LLM: chunk token
+        LLM-->>API: chunk token
+        API-->>User: data: chunk token
+    end
