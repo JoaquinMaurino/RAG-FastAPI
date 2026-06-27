@@ -22,6 +22,7 @@ Cuando hacés `settings = Settings()`, Pydantic automáticamente:
 Si una variable obligatoria falta, lanza un error claro al arrancar.
 """
 
+from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,6 +62,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
     # Modelo a usar. gemini-2.0-flash es rápido, barato y tiene free tier.
     # Alternativas: gemini-2.5-flash (más inteligente), gemini-2.5-pro (mejor calidad).
+
+    # --- Memory ---
+    memory_strategy: Literal["none", "sliding", "summary", "vector", "hybrid"] = "none"
+    memory_sliding_window_size: int = 10
+    memory_vector_top_k: int = 5
+    memory_summary_threshold: int = 20
+    memory_max_context_tokens: int = 2000
 
     # --- Configuración de Pydantic Settings ---
     model_config = SettingsConfigDict(

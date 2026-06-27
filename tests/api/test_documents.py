@@ -22,6 +22,8 @@ async def test_get_all_documents(client: AsyncClient):
     mock_doc = MagicMock()
     mock_doc.id = doc_id
     mock_doc.filename = "informe.pdf"
+    mock_doc.file_path = "/tmp/informe.pdf"
+    mock_doc.raw_text = "Texto extraido"
     mock_doc.created_at = datetime.utcnow()
     
     # patch asíncrono para que devuelva nuestra lista

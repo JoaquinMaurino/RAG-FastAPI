@@ -27,9 +27,10 @@ from typing import AsyncGenerator
 from app.core.config import settings
 
 
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import BaseMessage
+
 # ── Prompt Template ───────────────────────────────────────────────────────────
-# PromptTemplate reemplaza el f-string manual de la versión anterior.
-# Las variables entre llaves ({context}, {query}) se inyectan en ainvoke().
 _PROMPT_TEMPLATE = """\
 Sos un asistente de conocimiento interno de la empresa.
 Tu trabajo es responder preguntas EXCLUSIVAMENTE usando el contexto proporcionado.
@@ -42,12 +43,13 @@ Reglas estrictas:
 5. Respondé en el mismo idioma en que te preguntan.
 
 CONTEXTO:
-{context}
+{context}"""
 
-PREGUNTA:
-{query}"""
-
-_prompt = PromptTemplate.from_template(_PROMPT_TEMPLATE)
+_prompt = ChatPromptTemplate.from_messages([
+    ("system", _PROMPT_TEMPLATE),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{query}"),
+])
 
 
 # ── ChatModel (LangChain wrapper de Gemini) ───────────────────────────────────
@@ -66,17 +68,20 @@ _llm = ChatGoogleGenerativeAI(
 _qa_chain = _prompt | _llm | StrOutputParser()
 
 
-async def generate_answer(query: str, docs: list[Document]) -> str:
+async def generate_answer(query: str, docs: list[Document], chat_history: list[BaseMessage] | None = None) -> str:
     """
     Genera una respuesta usando la LCEL Chain con Gemini.
 
     Args:
         query: La pregunta del usuario.
         docs:  Lista de LangChain Documents recuperados por search_chunks.
+        chat_history: Lista de mensajes previos.
 
     Returns:
         La respuesta generada por el LLM como string.
     """
+    chat_history = chat_history or []
+    
     # Construimos el bloque de contexto desde los Documents.
     # page_content es el texto del chunk — la interfaz estándar de LangChain.
     context_block = "\n\n".join(
@@ -85,37 +90,40 @@ async def generate_answer(query: str, docs: list[Document]) -> str:
 
     logger.info(
         f"Invoking LangChain chain ({settings.gemini_model}) "
-        f"with {len(docs)} context chunks"
+        f"with {len(docs)} context chunks and {len(chat_history)} history messages"
     )
 
     # ainvoke() es el método async de las LCEL Chains.
     # Recibe un dict con las variables del PromptTemplate.
-    answer = await _qa_chain.ainvoke({"context": context_block, "query": query})
+    answer = await _qa_chain.ainvoke({"context": context_block, "chat_history": chat_history, "query": query})
 
     logger.info(f"Chain response received ({len(answer)} chars)")
     return answer
 
-async def generate_answer_stream(query: str, docs: list[Document]) -> AsyncGenerator[str, None]:
+async def generate_answer_stream(query: str, docs: list[Document], chat_history: list[BaseMessage] | None = None) -> AsyncGenerator[str, None]:
     """
     Genera una respuesta en streaming usando la LCEL Chain con Gemini.
 
     Args:
         query: La pregunta del usuario.
         docs:  Lista de LangChain Documents recuperados por search_chunks.
+        chat_history: Lista de mensajes previos.
 
     Yields:
         Fragmentos (chunks) de texto generados por el LLM en tiempo real.
     """
+    chat_history = chat_history or []
+    
     context_block = "\n\n".join(
         f"[{i + 1}] {doc.page_content}" for i, doc in enumerate(docs)
     )
 
     logger.info(
         f"Starting LangChain stream ({settings.gemini_model}) "
-        f"with {len(docs)} context chunks"
+        f"with {len(docs)} context chunks and {len(chat_history)} history messages"
     )
 
     # astream() devuelve un generador asíncrono que escupe tokens
     # a medida que Gemini los va enviando.
-    async for chunk in _qa_chain.astream({"context": context_block, "query": query}):
+    async for chunk in _qa_chain.astream({"context": context_block, "chat_history": chat_history, "query": query}):
         yield chunk

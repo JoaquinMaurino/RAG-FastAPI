@@ -20,6 +20,10 @@ class QueryRequest(BaseModel):
         description="La pregunta o texto a buscar en la base de datos.",
         examples=["¿Cuáles son los requisitos para sacar un préstamo?"],
     )
+    conversation_id: uuid.UUID | None = Field(
+        default=None,
+        description="ID de la conversación para mantener el contexto. Si no se envía, se creará una nueva.",
+    )
     limit: int = Field(
         default=5,
         ge=1,
@@ -48,5 +52,6 @@ class QueryResponse(BaseModel):
     """
 
     query: str
+    conversation_id: uuid.UUID | None = None
     answer: str | None = None
     results: list[ChunkResult]
