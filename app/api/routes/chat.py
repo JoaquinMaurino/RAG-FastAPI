@@ -16,7 +16,7 @@ las responsabilidades. Mantenerlos separados es más limpio y explícito.
 """
 
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,7 @@ memory_manager = ConversationManager()
 @router.post("/")
 async def chat(
     request: QueryRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -67,10 +68,13 @@ async def chat(
         )
 
     # --- Paso 4: Respuesta ---
-    # Para que el cliente pueda saber qué conversation_id se asignó (si mandó None),
-    # podríamos devolverlo en headers. StreamingResponse admite headers custom.
+    # Registramos las tareas de post-procesamiento (ej. actualizar el resumen)
+    # Estas correrán DESPUÉS de que se cierre el stream HTTP.
+    background_tasks.add_task(memory_manager.post_turn_tasks, conv_id)
+
     return StreamingResponse(
         event_generator(),
         media_type="text/plain",
-        headers={"X-Conversation-Id": str(conv_id)}
+        headers={"X-Conversation-Id": str(conv_id)},
+        background=background_tasks
     )

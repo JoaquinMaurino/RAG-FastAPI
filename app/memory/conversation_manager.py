@@ -3,6 +3,7 @@ Orquestador principal de la memoria conversacional.
 """
 
 from uuid import UUID
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from langchain_core.messages import BaseMessage
@@ -13,6 +14,12 @@ from app.database.models.conversation import Conversation
 from app.database.models.message import Message
 from app.memory.interface import MemoryStrategy
 from app.memory.strategies.none import NoMemory
+from app.memory.strategies.sliding_window import SlidingWindowMemory
+from app.memory.strategies.vector import VectorMemory
+from app.memory.strategies.summary import SummaryMemory
+from app.memory.strategies.hybrid import HybridMemory
+from app.services.embedding_service import get_embedding
+from app.database.session import async_session_factory
 
 
 class ConversationManager:
@@ -24,13 +31,25 @@ class ConversationManager:
 
     def __init__(self):
         # Resolvemos la estrategia a utilizar en base a la configuración.
-        # Por ahora solo tenemos 'none'. En futuras fases agregaremos las demás.
+        # El único lugar en el codebase que conoce las clases concretas de estrategia.
         self.strategy: MemoryStrategy
         if settings.memory_strategy == "none":
             self.strategy = NoMemory()
+        elif settings.memory_strategy == "sliding":
+            self.strategy = SlidingWindowMemory()
+        elif settings.memory_strategy == "vector":
+            self.strategy = VectorMemory()
+        elif settings.memory_strategy == "summary":
+            self.strategy = SummaryMemory()
+        elif settings.memory_strategy == "hybrid":
+            self.strategy = HybridMemory()
         else:
-            # Fallback seguro por ahora, aunque Pydantic ya validó el string.
-            logger.warning(f"Strategy '{settings.memory_strategy}' not yet fully implemented. Falling back to NoMemory.")
+            # Las estrategias de fases 2-4 (vector, summary, hybrid) aún no están
+            # implementadas. Fallback seguro hasta que estén disponibles.
+            logger.warning(
+                f"Strategy '{settings.memory_strategy}' not yet implemented. "
+                "Falling back to NoMemory."
+            )
             self.strategy = NoMemory()
 
     async def prepare_turn(
@@ -79,12 +98,19 @@ class ConversationManager:
             logger.error(f"Memory strategy '{settings.memory_strategy}' failed for conv {conversation_id}: {e}")
             context = []  # Fallback gracefully a "sin memoria"
 
-        # 3. Guardar el mensaje del usuario
-        # Ojo: en la Fase 2 aquí inyectaremos el cálculo del vector (embedding).
+        # 3. Guardar el mensaje del usuario (Fase 2: con su embedding)
+        # Calculamos el embedding en un thread separado para no bloquear el event loop.
+        try:
+            embedding = await asyncio.to_thread(get_embedding, question)
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for user message: {e}")
+            embedding = None
+
         user_msg = Message(
             conversation_id=conversation_id,
             role="user",
             content=question,
+            embedding=embedding,
         )
         session.add(user_msg)
         await session.flush()
@@ -108,3 +134,13 @@ class ConversationManager:
         session.add(assistant_msg)
         # Commit para persistir el turno entero (conv + user_msg + assistant_msg)
         await session.commit()
+
+    async def post_turn_tasks(self, conversation_id: UUID) -> None:
+        """
+        Ejecuta tareas en segundo plano después de que se envía la respuesta.
+        Crea su propia sesión de BD porque la del request HTTP ya está cerrada.
+        """
+        if hasattr(self.strategy, "run_background_tasks"):
+            async with async_session_factory() as bg_session:
+                await self.strategy.run_background_tasks(bg_session, conversation_id)
+    
