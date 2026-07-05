@@ -24,7 +24,10 @@ from app.database.session import get_session
 from app.schemas.query import QueryRequest
 from app.services.search_service import search_chunks
 from app.services.llm_service import generate_answer_stream
+from app.services.query_rewriter import rewrite_query
+from app.services.multi_query import multi_query_search
 from app.memory.conversation_manager import ConversationManager
+from app.core.config import settings
 
 router = APIRouter(tags=["Chat"])
 
@@ -47,10 +50,20 @@ async def chat(
         question=request.query,
     )
 
-    # --- Paso 2: Retrieval ---
-    docs = await search_chunks(session, request.query, request.limit)
+    # --- Paso 2: Query Rewriting ---
+    # Reformulamos la query antes del retrieval para mejorar la calidad del embedding.
+    # Si el rewriter falla internamente, rewrite_query devuelve la query original.
+    search_query = await rewrite_query(request.query, chat_history)
 
-    # --- Paso 3: Generador de Texto Crudo y Guardado de Memoria ---
+    # --- Paso 3: Retrieval ---
+    # MULTI_QUERY_ENABLED=true: genera N variantes y busca en paralelo (mayor recall).
+    # MULTI_QUERY_ENABLED=false: búsqueda simple con la query reescrita (Fase 2.1).
+    if settings.multi_query_enabled:
+        docs = await multi_query_search(session, search_query, request.limit)
+    else:
+        docs = await search_chunks(session, search_query, request.limit)
+
+    # --- Paso 4: Generador de Texto Crudo y Guardado de Memoria ---
     async def event_generator():
         full_response = []
         # Iteramos sobre el generador asíncrono de LangChain pasándole el history

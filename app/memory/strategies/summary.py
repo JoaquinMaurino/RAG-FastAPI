@@ -11,7 +11,7 @@ from uuid import UUID
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_google_genai import ChatGoogleGenerativeAI
+from app.services.llm_factory import get_llm
 from loguru import logger
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,12 +24,8 @@ from app.memory.tokens import approx_tokens
 
 
 # ── Chain de Resumen (LLM) ───────────────────────────────────────────────────
-# Usamos el modelo estándar pero forzando temperatura 0.0 para ser fácticos.
-_summary_llm = ChatGoogleGenerativeAI(
-    model=settings.gemini_model,
-    google_api_key=settings.gemini_api_key,
-    temperature=0.0,
-)
+# Temperatura 0.0 para resúmenes: fácticos y consistentes, sin creatividad.
+_summary_llm = get_llm(temperature=0.0)
 
 _summary_prompt = PromptTemplate.from_template(
     "Sos un asistente encargado de comprimir el contexto de una conversación.\n"

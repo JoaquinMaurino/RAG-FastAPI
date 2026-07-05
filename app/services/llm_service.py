@@ -17,18 +17,15 @@ El patron Stuffing se mantiene: concatenamos todos los chunks en un
 solo bloque de texto y se lo enviamos al LLM en una única llamada.
 """
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
+from langchain_core.messages import BaseMessage
 from loguru import logger
 from typing import AsyncGenerator
 
-from app.core.config import settings
+from app.services.llm_factory import get_llm
 
-
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import BaseMessage
 
 # ── Prompt Template ───────────────────────────────────────────────────────────
 _PROMPT_TEMPLATE = """\
@@ -52,14 +49,10 @@ _prompt = ChatPromptTemplate.from_messages([
 ])
 
 
-# ── ChatModel (LangChain wrapper de Gemini) ───────────────────────────────────
-# ChatGoogleGenerativeAI implementa la interfaz estándar BaseChatModel de LangChain.
-# Temperatura baja = respuestas más determinísticas y fieles al contexto.
-_llm = ChatGoogleGenerativeAI(
-    model=settings.gemini_model,
-    google_api_key=settings.gemini_api_key,
-    temperature=0.2,
-)
+# ── ChatModel (construido por la factory centralizada) ─────────────────────────
+# Temperatura 0.2: respuestas fieles al contexto pero con suficiente
+# naturalidad para sonar como un asistente, no como una máquina de copiar.
+_llm = get_llm(temperature=0.2)
 
 
 # ── LCEL Chain ────────────────────────────────────────────────────────────────

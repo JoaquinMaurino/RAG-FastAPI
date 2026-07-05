@@ -63,12 +63,38 @@ class Settings(BaseSettings):
     # Modelo a usar. gemini-2.0-flash es rápido, barato y tiene free tier.
     # Alternativas: gemini-2.5-flash (más inteligente), gemini-2.5-pro (mejor calidad).
 
+    # --- LLM Provider ---
+    llm_provider: Literal["gemini", "ollama"] = "gemini"
+    # Selecciona el proveedor de LLM. Gemini usa la API de Google,
+    # Ollama permite testear localmente con modelos open-source sin gastar cuota.
+
+    # --- Ollama (solo cuando LLM_PROVIDER=ollama) ---
+    ollama_model: str = "llama3.2"
+    ollama_base_url: str = "http://localhost:11434"
+
     # --- Memory ---
     memory_strategy: Literal["none", "sliding", "summary", "vector", "hybrid"] = "none"
     memory_sliding_window_size: int = 10
     memory_vector_top_k: int = 5
     memory_summary_threshold: int = 20
     memory_max_context_tokens: int = 2000
+
+    # --- Multi-Query Retrieval ---
+    multi_query_enabled: bool = False
+    # Activar agrega latencia (~1 LLM call extra) y mejora el recall.
+    # Medir el trade-off con el eval framework (Fase 4) antes de activar en producción.
+    multi_query_n: int = 3
+    # Número de variantes a generar. 3 es un buen balance entre cobertura y costo.
+
+    # --- Hybrid Search (Phase 2.2) ---
+    search_mode: Literal["hybrid", "semantic_only", "lexical_only"] = "hybrid"
+    # hybrid: semántico + BM25 fusionados con RRF (Reciprocal Rank Fusion).
+    # semantic_only: solo búsqueda vectorial (comportamiento pre-2.2).
+    # lexical_only: solo full-text search (útil para debug y tests).
+    hybrid_rrf_k: int = 60
+    # Parámetro k de RRF. Valor clásico de la literatura: 60.
+    # Controla cuánto peso tienen los top ranks vs los intermedios.
+    # Un k mayor aplana las diferencias entre posiciones.
 
     # --- Configuración de Pydantic Settings ---
     model_config = SettingsConfigDict(

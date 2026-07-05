@@ -2,8 +2,11 @@ import uuid
 from langchain_core.tools import tool
 from loguru import logger
 
+from app.core.config import settings
 from app.database.session import async_session_factory
 from app.services import document_service, search_service
+from app.services.query_rewriter import rewrite_query
+from app.services.multi_query import multi_query_search
 
 @tool
 async def count_documents() -> str:
@@ -51,13 +54,22 @@ async def search_documents(query: str) -> str:
     Pass a clear, concise search query in English or Spanish.
     """
     logger.info(f"Tool executed: search_documents (query='{query}')")
+
+    # Rewrite the query for better retrieval quality.
+    # No chat_history here — the agent already formulates explicit tool queries,
+    # so the rewriter acts as a normalization pass. Falls back to original on failure.
+    search_query = await rewrite_query(query, chat_history=None)
+
     async with async_session_factory() as session:
-        # Default to 5 chunks for the agent
-        docs = await search_service.search_chunks(session, query, limit=5)
-        
+        # MULTI_QUERY_ENABLED: same switch as /chat for consistency.
+        if settings.multi_query_enabled:
+            docs = await multi_query_search(session, search_query, limit=5)
+        else:
+            docs = await search_service.search_chunks(session, search_query, limit=5)
+
         if not docs:
             return "No relevant information found in the documents."
-            
+
         context_block = "\n\n".join(
             f"[Source {i + 1}] {doc.page_content}" for i, doc in enumerate(docs)
         )

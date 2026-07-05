@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import String, Text, Integer, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, TSVECTOR
 
 from app.database.models.base import Base
 from app.services.embedding_service import EMBEDDING_DIMENSIONS
@@ -86,6 +86,15 @@ class Chunk(Base):
     # Timestamp de creación
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # --- Full-Text Search (Fase 2.2) ---
+    # Columna tsvector: representación tokenizada del contenido para búsqueda léxica.
+    # PostgreSQL la actualiza automáticamente via trigger (definido en la migración SQL).
+    # nullable=True porque chunks anteriores a esta fase no la tienen poblada aún.
+    # El idioma 'simple' es neutro y funciona bien con textos mixtos (ES/EN).
+    content_tsv: Mapped[object] = mapped_column(
+        TSVECTOR, nullable=True
     )
 
     # Relación ORM hacia el documento padre.
