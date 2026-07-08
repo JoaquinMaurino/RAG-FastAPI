@@ -5,7 +5,7 @@ Modos disponibles (SEARCH_MODE):
 ---------------------------------
   hybrid:        Semántico + Léxico fusionados con Reciprocal Rank Fusion (RRF).
                  Default recomendado para producción.
-  semantic_only: Solo búsqueda vectorial (comportamiento pre-2.2).
+  semantic_only: Solo búsqueda vectorial.
                  Útil para A/B testing o si el corpus es puramente conceptual.
   lexical_only:  Solo full-text search (PostgreSQL tsvector/tsquery).
                  Útil para debug, queries con términos exactos, o testing.
@@ -31,18 +31,23 @@ Ver docs/migrations/add_tsvector_hybrid_search.sql para la migración completa.
 import asyncio
 
 from sqlalchemy import select, func, text
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.documents import Document
 
 from app.core.config import settings
 from app.database.models.chunk import Chunk
+from app.schemas.query import SearchFilters
 from app.services.embedding_service import get_embedding
+from app.services.reranker import rerank_documents
+from app.services.context_compressor import compress_documents
 
 
 async def _semantic_search(
     session: AsyncSession,
     query: str,
     limit: int,
+    filters: SearchFilters | None = None,
 ) -> list[Document]:
     """Búsqueda por similitud coseno sobre pgvector."""
     query_vector = get_embedding(query)
@@ -50,10 +55,14 @@ async def _semantic_search(
 
     stmt = (
         select(Chunk, distance_col)
+        .options(selectinload(Chunk.document))
         .where(Chunk.embedding.is_not(None))
-        .order_by(distance_col.asc())
-        .limit(limit)
     )
+
+    if filters and filters.document_id:
+        stmt = stmt.where(Chunk.document_id == filters.document_id)
+
+    stmt = stmt.order_by(distance_col.asc()).limit(limit)
 
     result = await session.execute(stmt)
     return [
@@ -62,6 +71,7 @@ async def _semantic_search(
             metadata={
                 "chunk_id": str(row.Chunk.id),
                 "document_id": str(row.Chunk.document_id),
+                "filename": row.Chunk.document.filename if row.Chunk.document else "Unknown",
                 "distance": round(float(row.distance), 4),
             },
         )
@@ -73,6 +83,7 @@ async def _lexical_search(
     session: AsyncSession,
     query: str,
     limit: int,
+    filters: SearchFilters | None = None,
 ) -> list[Document]:
     """
     Búsqueda léxica con tsvector/tsquery de PostgreSQL (equivalente a BM25).
@@ -87,13 +98,17 @@ async def _lexical_search(
             Chunk,
             func.ts_rank(Chunk.content_tsv, func.plainto_tsquery("simple", query)).label("rank"),
         )
+        .options(selectinload(Chunk.document))
         .where(
             Chunk.content_tsv.is_not(None),
             Chunk.content_tsv.op("@@")(func.plainto_tsquery("simple", query)),
         )
-        .order_by(text("rank DESC"))
-        .limit(limit)
     )
+
+    if filters and filters.document_id:
+        stmt = stmt.where(Chunk.document_id == filters.document_id)
+
+    stmt = stmt.order_by(text("rank DESC")).limit(limit)
 
     result = await session.execute(stmt)
     return [
@@ -102,6 +117,7 @@ async def _lexical_search(
             metadata={
                 "chunk_id": str(row.Chunk.id),
                 "document_id": str(row.Chunk.document_id),
+                "filename": row.Chunk.document.filename if row.Chunk.document else "Unknown",
                 "ts_rank": round(float(row.rank), 4),
             },
         )
@@ -153,6 +169,7 @@ async def search_chunks(
     session: AsyncSession,
     query: str,
     limit: int = 5,
+    filters: SearchFilters | None = None,
 ) -> list[Document]:
     """
     Punto de entrada principal de búsqueda. El modo se controla via SEARCH_MODE.
@@ -161,30 +178,46 @@ async def search_chunks(
         session: Sesión de SQLAlchemy.
         query:   La query normalizada (ya procesada por rewrite_query si aplica).
         limit:   Cantidad de chunks a devolver.
+        filters: Filtros opcionales de metadata.
 
     Returns:
         Lista de LangChain Documents listos para el LLM.
     """
     mode = settings.search_mode
 
+    # Si el reranking está activado, extraemos más candidatos (ej. limit * 4) 
+    # de la base de datos para que el modelo Cross-Encoder tenga material para reordenar.
+    fetch_limit = limit * 4 if settings.reranking_enabled else limit
+
     if mode == "semantic_only":
-        return await _semantic_search(session, query, limit)
+        docs = await _semantic_search(session, query, fetch_limit, filters)
 
-    if mode == "lexical_only":
-        return await _lexical_search(session, query, limit)
+    elif mode == "lexical_only":
+        docs = await _lexical_search(session, query, fetch_limit, filters)
 
-    # hybrid: ejecutamos ambas en paralelo y fusionamos con RRF.
-    # Pedimos más candidatos a cada sistema (×2) para que la fusión tenga
-    # material suficiente y el top-limit final sea de alta calidad.
-    candidate_limit = limit * 2
-    semantic_docs, lexical_docs = await asyncio.gather(
-        _semantic_search(session, query, candidate_limit),
-        _lexical_search(session, query, candidate_limit),
-    )
+    else:
+        # hybrid: ejecutamos ambas en paralelo y fusionamos con RRF.
+        candidate_limit = fetch_limit * 2
+        semantic_docs, lexical_docs = await asyncio.gather(
+            _semantic_search(session, query, candidate_limit, filters),
+            _lexical_search(session, query, candidate_limit, filters),
+        )
 
-    return _reciprocal_rank_fusion(
-        semantic_docs,
-        lexical_docs,
-        k=settings.hybrid_rrf_k,
-        limit=limit,
-    )
+        docs = _reciprocal_rank_fusion(
+            semantic_docs,
+            lexical_docs,
+            k=settings.hybrid_rrf_k,
+            limit=fetch_limit,
+        )
+
+    # Aplicar el Cross-Encoder Re-ranking si está habilitado
+    if settings.reranking_enabled:
+        # Nota: El Cross-Encoder corre en CPU, es una operación sincrónica.
+        # En el futuro (Fase 15) se puede mover a workers / asyncio.to_thread.
+        docs = rerank_documents(query, docs, top_n=limit)
+
+    #Context Compression
+    if settings.context_compression_enabled:
+        docs = await compress_documents(query, docs)
+
+    return docs

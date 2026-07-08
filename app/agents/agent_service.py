@@ -3,6 +3,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import BaseMessage
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from loguru import logger
+import re
+import uuid
 
 from app.services.llm_factory import get_llm
 from app.agents.tools import search_documents, count_documents, get_document_info
@@ -50,7 +52,7 @@ _agent_executor = AgentExecutor(
     agent=_agent,
     tools=_tools,
     verbose=True,  # This will print the agent's thought process to the console
-    return_intermediate_steps=False,
+    return_intermediate_steps=True,
     # --- Guardrails ---
     # Prevents infinite tool-calling loops that would burn API quota uncontrollably.
     max_iterations=5,
@@ -75,7 +77,7 @@ class AgentTimeoutError(Exception):
 async def run_agent(
     query: str,
     chat_history: list[BaseMessage] | None = None,
-) -> str:
+) -> tuple[str, list[dict]]:
     """
     Invokes the agent with the user's query and optional conversation history.
 
@@ -99,7 +101,25 @@ async def run_agent(
             "input": query,
             "chat_history": history,
         })
-        return response["output"]
+        
+        # Extraemos las fuentes de los intermediate_steps
+        sources = []
+        seen_docs = set()
+        intermediate_steps = response.get("intermediate_steps", [])
+        for action, observation in intermediate_steps:
+            if action.tool == "search_documents" and isinstance(observation, str):
+                # Buscamos el patrón "(File: ..., DocID: ...)" inyectado por la tool
+                matches = re.findall(r"\(File:\s*(.*?),\s*DocID:\s*(.*?)\)", observation)
+                for filename, doc_id_str in matches:
+                    try:
+                        doc_uuid = uuid.UUID(doc_id_str)
+                        if doc_uuid not in seen_docs:
+                            seen_docs.add(doc_uuid)
+                            sources.append({"document_id": doc_uuid, "filename": filename})
+                    except ValueError:
+                        pass
+                
+        return response["output"], sources
 
     except asyncio.TimeoutError as e:
         # El timeout del event loop de Python (distinto del max_execution_time de LangChain,

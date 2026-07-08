@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     multi_query_n: int = 3
     # Número de variantes a generar. 3 es un buen balance entre cobertura y costo.
 
-    # --- Hybrid Search (Phase 2.2) ---
+    # --- Hybrid Search ---
     search_mode: Literal["hybrid", "semantic_only", "lexical_only"] = "hybrid"
     # hybrid: semántico + BM25 fusionados con RRF (Reciprocal Rank Fusion).
     # semantic_only: solo búsqueda vectorial (comportamiento pre-2.2).
@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     # Parámetro k de RRF. Valor clásico de la literatura: 60.
     # Controla cuánto peso tienen los top ranks vs los intermedios.
     # Un k mayor aplana las diferencias entre posiciones.
+
+    # --- Re-ranking ---
+    reranking_enabled: bool = False
+    reranking_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranking_top_n: int = 5
+
+    # --- Context Compression ---
+    context_compression_enabled: bool = False
 
     # --- Configuración de Pydantic Settings ---
     model_config = SettingsConfigDict(

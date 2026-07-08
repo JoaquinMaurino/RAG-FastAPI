@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
-from app.schemas.query import QueryRequest, QueryResponse
+from app.schemas.query import QueryRequest, QueryResponse, SourceRef
 from app.agents.agent_service import run_agent, AgentProviderError, AgentTimeoutError
 from app.memory.conversation_manager import ConversationManager
 
@@ -53,7 +53,8 @@ async def chat_with_agent(
 
     # --- Paso 2: Ejecución del Agente ---
     try:
-        answer = await run_agent(request.query, chat_history)
+        answer, raw_sources = await run_agent(request.query, chat_history)
+        sources = [SourceRef(**s) for s in raw_sources]
     except AgentProviderError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -86,5 +87,5 @@ async def chat_with_agent(
         query=request.query,
         conversation_id=conv_id,
         answer=answer,
-        results=[],
+        sources=sources,
     )

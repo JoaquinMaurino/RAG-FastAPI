@@ -4,6 +4,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.database.session import async_session_factory
+from app.schemas.query import SearchFilters
 from app.services import document_service, search_service
 from app.services.query_rewriter import rewrite_query
 from app.services.multi_query import multi_query_search
@@ -47,30 +48,39 @@ async def get_document_info(document_id: str) -> str:
 
 
 @tool
-async def search_documents(query: str) -> str:
+async def search_documents(query: str, document_id: str | None = None) -> str:
     """
     Performs a semantic search over the content of all uploaded documents.
     Use this tool to find information, answer questions, or retrieve context based on user queries.
     Pass a clear, concise search query in English or Spanish.
+    You can optionally filter by a specific document using the document_id.
     """
-    logger.info(f"Tool executed: search_documents (query='{query}')")
+    logger.info(f"Tool executed: search_documents (query='{query}', document_id={document_id})")
 
     # Rewrite the query for better retrieval quality.
     # No chat_history here — the agent already formulates explicit tool queries,
     # so the rewriter acts as a normalization pass. Falls back to original on failure.
     search_query = await rewrite_query(query, chat_history=None)
 
+    filters = None
+    if document_id:
+        try:
+            filters = SearchFilters(document_id=uuid.UUID(document_id))
+        except ValueError:
+            return "Error: document_id must be a valid UUID string."
+
     async with async_session_factory() as session:
         # MULTI_QUERY_ENABLED: same switch as /chat for consistency.
         if settings.multi_query_enabled:
-            docs = await multi_query_search(session, search_query, limit=5)
+            docs = await multi_query_search(session, search_query, limit=5, filters=filters)
         else:
-            docs = await search_service.search_chunks(session, search_query, limit=5)
+            docs = await search_service.search_chunks(session, search_query, limit=5, filters=filters)
 
         if not docs:
             return "No relevant information found in the documents."
 
         context_block = "\n\n".join(
-            f"[Source {i + 1}] {doc.page_content}" for i, doc in enumerate(docs)
+            f"[Source {i + 1}] (File: {doc.metadata.get('filename', 'Unknown')}, DocID: {doc.metadata.get('document_id', 'Unknown')})\n{doc.page_content}"
+            for i, doc in enumerate(docs)
         )
         return f"Found the following relevant information:\n\n{context_block}"

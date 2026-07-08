@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
-from app.schemas.query import QueryRequest, QueryResponse
+from app.schemas.query import QueryRequest, QueryResponse, SearchFilters
 from app.services.search_service import search_chunks
 
 router = APIRouter(tags=["Search"])
@@ -23,7 +23,8 @@ async def perform_search(
     La respuesta de este endpoint (los textos de los chunks) es lo que en el futuro
     se le inyectará al LLM para que pueda responder la pregunta.
     """
-    docs = await search_chunks(session, request.query, request.limit)
+    filters = SearchFilters(document_id=request.document_id) if request.document_id else None
+    docs = await search_chunks(session, request.query, request.limit, filters=filters)
 
     # Convertimos los Documents al formato dict que espera QueryResponse.
     results = [

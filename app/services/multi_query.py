@@ -25,6 +25,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.schemas.query import SearchFilters
 from app.services.llm_factory import get_llm
 from app.services.search_service import search_chunks
 
@@ -100,6 +101,7 @@ async def multi_query_search(
     query: str,
     limit: int = 5,
     chat_history: list[BaseMessage] | None = None,
+    filters: SearchFilters | None = None,
 ) -> list[Document]:
     """
     Ejecuta búsquedas en paralelo con N variantes de la query y deduplica resultados.
@@ -129,7 +131,7 @@ async def multi_query_search(
     # Si una búsqueda falla, la capturamos para no bloquear las demás.
     async def safe_search(q: str) -> list[Document]:
         try:
-            return await search_chunks(session, q, limit=limit)
+            return await search_chunks(session, q, limit=limit, filters=filters)
         except Exception as e:
             logger.warning(f"Search failed for variant '{q}': {type(e).__name__}: {e}")
             return []

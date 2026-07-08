@@ -24,12 +24,27 @@ class QueryRequest(BaseModel):
         default=None,
         description="ID de la conversación para mantener el contexto. Si no se envía, se creará una nueva.",
     )
+    document_id: uuid.UUID | None = Field(
+        default=None,
+        description="Filtro opcional: ID del documento específico en el cual buscar.",
+    )
     limit: int = Field(
         default=5,
         ge=1,
         le=20,
         description="Cantidad máxima de chunks a recuperar.",
     )
+
+
+class SearchFilters(BaseModel):
+    """Filtros opcionales para aplicar antes de la búsqueda."""
+    document_id: uuid.UUID | None = None
+
+
+class SourceRef(BaseModel):
+    """Referencia a un documento fuente."""
+    document_id: uuid.UUID
+    filename: str
 
 
 class ChunkResult(BaseModel):
@@ -54,4 +69,5 @@ class QueryResponse(BaseModel):
     query: str
     conversation_id: uuid.UUID | None = None
     answer: str | None = None
-    results: list[ChunkResult]
+    results: list[ChunkResult] = Field(default_factory=list)
+    sources: list[SourceRef] = Field(default_factory=list)

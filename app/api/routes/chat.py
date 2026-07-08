@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
-from app.schemas.query import QueryRequest
+from app.schemas.query import QueryRequest, SearchFilters
 from app.services.search_service import search_chunks
 from app.services.llm_service import generate_answer_stream
 from app.services.query_rewriter import rewrite_query
@@ -56,12 +56,14 @@ async def chat(
     search_query = await rewrite_query(request.query, chat_history)
 
     # --- Paso 3: Retrieval ---
+    filters = SearchFilters(document_id=request.document_id) if request.document_id else None
+
     # MULTI_QUERY_ENABLED=true: genera N variantes y busca en paralelo (mayor recall).
     # MULTI_QUERY_ENABLED=false: búsqueda simple con la query reescrita (Fase 2.1).
     if settings.multi_query_enabled:
-        docs = await multi_query_search(session, search_query, request.limit)
+        docs = await multi_query_search(session, search_query, limit=request.limit, chat_history=None, filters=filters)
     else:
-        docs = await search_chunks(session, search_query, request.limit)
+        docs = await search_chunks(session, search_query, limit=request.limit, filters=filters)
 
     # --- Paso 4: Generador de Texto Crudo y Guardado de Memoria ---
     async def event_generator():

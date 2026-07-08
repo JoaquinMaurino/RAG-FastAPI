@@ -243,7 +243,7 @@ El pipeline actual es: pregunta → embedding → búsqueda en pgvector → top-
 **Archivos afectados:** `search_service.py` o un nuevo paso en el pipeline de construcción de contexto.
 
 **Criterios de aceptación:**
-- [ ] Con compresión activada, el tamaño total de tokens del contexto final es menor que sin ella, para un mismo set de documentos recuperados.
+- [x] Con compresión activada, el tamaño total de tokens del contexto final es menor que sin ella, para un mismo set de documentos recuperados.
 - [ ] Faithfulness/Answer Relevancy (Fase 4) no empeora al activar la compresión (idealmente mejora o se mantiene).
 - [ ] `pytest tests/ -k "context_compression" -v` pasa.
 
@@ -265,8 +265,8 @@ El pipeline actual es: pregunta → embedding → búsqueda en pgvector → top-
 **Archivos afectados:** `app/agents/tools.py`, schema de respuesta de `/agent`.
 
 **Criterios de aceptación:**
-- [ ] Una respuesta que usó `search_documents` incluye `sources` no vacío con `filename` y `document_id`.
-- [ ] Una respuesta sin retrieval (saludo) devuelve `sources: []`.
+- [x] Una respuesta que usó `search_documents` incluye `sources` no vacío con `filename` y `document_id`.
+- [x] Una respuesta sin retrieval (saludo) devuelve `sources: []`.
 - [ ] `pytest tests/ -k "agent and sources" -v` pasa.
 
 ---
